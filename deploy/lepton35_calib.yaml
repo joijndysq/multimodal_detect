@@ -1,0 +1,18 @@
+camera_name: Lepton3.5
+resolution:
+  width: 640
+  height: 480
+thermal_camera:
+  width: 640
+  height: 480
+  fx: 634.713801888532
+  fy: 634.760194499875
+  cx: 313.644368704545
+  cy: 236.621765714585
+  distortion: plumb_bob
+  distortion_coefficients:
+  - -0.308961647432
+  - 0.172344792534
+  - 0.000000000000
+  - 0.000000000000
+  - 0.000000000000

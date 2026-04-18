@@ -2,6 +2,7 @@
 import cv2
 import torch
 import numpy as np
+import onnxruntime
 from ultralytics.data.augment import LetterBox
 from ultralytics.nn.autobackend import AutoBackend
 
@@ -184,13 +185,12 @@ def load_model(weights_path, device):
     return model
 
 def detecttwoStream():
-    img = cv2.imread("/home/mjy/ultralytics/datasets/OBB/images/train/00011.jpg")
+    img = cv2.imread("/home/lyric/ir_rgb/TwoStream_Yolov8/datasets/drone2/images/test/00001.jpg")
     imgr=img
-    irimg = cv2.imread("/home/mjy/ultralytics/datasets/OBB/image/train/00011.jpg")
+    irimg = cv2.imread("/home/lyric/ir_rgb/TwoStream_Yolov8/datasets/drone2/image/test/00001.jpg")
     # img_pre = preprocess_letterbox(img)
     img=np.concatenate((img,irimg),axis=2)
 
-    import onnxruntime
 
     img_pre, IM = preprocess_warpAffine(img)
     # cv2.imwrite("1.jpg",np.array(img_pre[0][:3,...].permute(1,2,0))*255)
@@ -199,7 +199,7 @@ def detecttwoStream():
     # names  = model.names
     # result = model(img_pre)[0].transpose(-1, -2)  # 1,21504,20
 
-    session = onnxruntime.InferenceSession("/home/mjy/ultralytics/runs/obb/3IR/weights/best.onnx")
+    session = onnxruntime.InferenceSession("/home/lyric/ir_rgb/TwoStream_Yolov8/runs/detect/train16/weights/best.pt")
     input_name = session.get_inputs()[0].name  
     output_name = session.get_outputs()[0].name  
 

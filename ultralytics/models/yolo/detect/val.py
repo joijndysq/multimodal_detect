@@ -167,8 +167,13 @@ class DetectionValidator(BaseValidator):
 
     def get_stats(self):
         """Returns metrics statistics and results dictionary."""
-        stats = {k: torch.cat(v, 0).cpu().numpy() for k, v in self.stats.items()}  # to numpy
-        if len(stats) and stats["tp"].any():
+        if not any(len(v) for v in self.stats.values()):
+            self.nt_per_class = np.zeros(self.nc, dtype=int)
+            LOGGER.warning("WARNING ⚠️ validation produced no stats (no labels and no predictions).")
+            return self.metrics.results_dict
+
+        stats = {k: (torch.cat(v, 0).cpu().numpy() if len(v) else np.array([])) for k, v in self.stats.items()}  # to numpy
+        if len(stats) and stats["tp"].size and stats["tp"].any():
             self.metrics.process(**stats)
         self.nt_per_class = np.bincount(
             stats["target_cls"].astype(int), minlength=self.nc

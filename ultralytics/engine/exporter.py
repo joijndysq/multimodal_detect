@@ -96,8 +96,6 @@ from ultralytics.utils.torch_utils import TORCH_1_13, get_latest_opset, select_d
 
 def export_formats():
     """YOLOv8 export formats."""
-    import pandas  # scope for faster 'import ultralytics'
-
     x = [
         ["PyTorch", "-", ".pt", True, True],
         ["TorchScript", "torchscript", ".torchscript", True, True],
@@ -113,7 +111,36 @@ def export_formats():
         ["PaddlePaddle", "paddle", "_paddle_model", True, True],
         ["NCNN", "ncnn", "_ncnn_model", True, True],
     ]
-    return pandas.DataFrame(x, columns=["Format", "Argument", "Suffix", "CPU", "GPU"])
+    columns = ["Format", "Argument", "Suffix", "CPU", "GPU"]
+
+    try:
+        import pandas  # scope for faster 'import ultralytics'
+
+        return pandas.DataFrame(x, columns=columns)
+    except Exception:
+        class _FormatsTable:
+            def __init__(self, rows, cols):
+                self._rows = rows
+                self._cols = cols
+
+            def __getitem__(self, key):
+                i = self._cols.index(key)
+                return [r[i] for r in self._rows]
+
+            @property
+            def Suffix(self):
+                return self["Suffix"]
+
+            def iterrows(self):
+                for i, row in enumerate(self._rows):
+                    yield i, row
+
+            def __str__(self):
+                return "\n".join([", ".join(self._cols)] + [", ".join(map(str, r)) for r in self._rows])
+
+            __repr__ = __str__
+
+        return _FormatsTable(x, columns)
 
 
 def gd_outputs(gd):

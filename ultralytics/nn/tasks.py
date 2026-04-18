@@ -1,6 +1,7 @@
 # Ultralytics YOLO 🚀, AGPL-3.0 license
 
 import contextlib
+import pickle
 from copy import deepcopy
 from pathlib import Path
 
@@ -826,6 +827,19 @@ def torch_safe_load(weight):
     """
     from ultralytics.utils.downloads import attempt_download_asset
 
+    def _torch_load_compat(path):
+        """Load checkpoints with a PyTorch 2.6-compatible fallback for trusted legacy weights."""
+        try:
+            return torch.load(path, map_location="cpu")
+        except pickle.UnpicklingError as e:
+            if "Weights only load failed" in str(e):
+                LOGGER.warning(
+                    f"WARNING ⚠️ Falling back to torch.load(weights_only=False) for '{path}'. "
+                    "Only use trusted checkpoint files."
+                )
+                return torch.load(path, map_location="cpu", weights_only=False)
+            raise
+
     check_suffix(file=weight, suffix=".pt")
     file = attempt_download_asset(weight)  # search online if missing locally
     try:
@@ -836,7 +850,7 @@ def torch_safe_load(weight):
                 "ultralytics.yolo.data": "ultralytics.data",
             }
         ):  # for legacy 8.0 Classify and Pose models
-            ckpt = torch.load(file, map_location="cpu")
+            ckpt = _torch_load_compat(file)
 
     except ModuleNotFoundError as e:  # e.name is missing module name
         if e.name == "models":
@@ -856,7 +870,7 @@ def torch_safe_load(weight):
             f"run a command with an official YOLOv8 model, i.e. 'yolo predict model=yolov8n.pt'"
         )
         check_requirements(e.name)  # install missing module
-        ckpt = torch.load(file, map_location="cpu")
+        ckpt = _torch_load_compat(file)
 
     if not isinstance(ckpt, dict):
         # File is likely a YOLO instance saved with i.e. torch.save(model, "saved_model.pt")

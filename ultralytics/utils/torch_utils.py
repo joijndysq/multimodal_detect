@@ -2,6 +2,7 @@
 
 import math
 import os
+import pickle
 import random
 import time
 from contextlib import contextmanager
@@ -493,7 +494,17 @@ def strip_optimizer(f: Union[str, Path] = "best.pt", s: str = "") -> None:
             strip_optimizer(f)
         ```
     """
-    x = torch.load(f, map_location=torch.device("cpu"))
+    try:
+        x = torch.load(f, map_location=torch.device("cpu"))
+    except pickle.UnpicklingError as e:
+        if "Weights only load failed" in str(e):
+            LOGGER.warning(
+                f"WARNING ⚠️ Falling back to torch.load(weights_only=False) for '{f}' during optimizer stripping. "
+                "Only use trusted checkpoint files."
+            )
+            x = torch.load(f, map_location=torch.device("cpu"), weights_only=False)
+        else:
+            raise
     if "model" not in x:
         LOGGER.info(f"Skipping {f}, not a valid Ultralytics model.")
         return

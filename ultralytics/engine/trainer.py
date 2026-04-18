@@ -503,9 +503,29 @@ class BaseTrainer:
 
     def save_model(self):
         """Save model training checkpoints with additional metadata."""
+        import csv
         import io
 
-        import pandas as pd  # scope for faster 'import ultralytics'
+        def _read_train_results(csv_path):
+            """Read results.csv into a dict-of-lists without requiring pandas."""
+            if not csv_path.exists():
+                return {}
+
+            out = {}
+            with open(csv_path, newline="") as f:
+                reader = csv.DictReader(f)
+                if not reader.fieldnames:
+                    return {}
+                out = {k.strip(): [] for k in reader.fieldnames}
+                for row in reader:
+                    for k in reader.fieldnames:
+                        key = k.strip()
+                        v = row.get(k, "")
+                        try:
+                            out[key].append(float(v))
+                        except (TypeError, ValueError):
+                            out[key].append(v)
+            return out
 
         # Serialize ckpt to a byte buffer once (faster than repeated torch.save() calls)
         buffer = io.BytesIO()
@@ -519,7 +539,7 @@ class BaseTrainer:
                 "optimizer": convert_optimizer_state_dict_to_fp16(deepcopy(self.optimizer.state_dict())),
                 "train_args": vars(self.args),  # save as dict
                 "train_metrics": {**self.metrics, **{"fitness": self.fitness}},
-                "train_results": {k.strip(): v for k, v in pd.read_csv(self.csv).to_dict(orient="list").items()},
+                "train_results": _read_train_results(self.csv),
                 "date": datetime.now().isoformat(),
                 "version": __version__,
                 "license": "AGPL-3.0 (https://ultralytics.com/license)",

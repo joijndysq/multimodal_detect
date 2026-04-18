@@ -45,12 +45,36 @@ FORMATS_HELP_MSG = f"Supported formats are:\nimages: {IMG_FORMATS}\nvideos: {VID
 def img2label_paths(img_paths):
     """Define label paths as a function of image paths."""
     sa, sb = f"{os.sep}images{os.sep}", f"{os.sep}labels{os.sep}"  # /images/, /labels/ substrings
-    return [sb.join(x.rsplit(sa, 1)).rsplit(".", 1)[0] + ".txt" for x in img_paths]
+    vis, ir = f"{os.sep}visible{os.sep}", f"{os.sep}infrared{os.sep}"
+    paths = []
+    for x in img_paths:
+        if sa in x:
+            y = sb.join(x.rsplit(sa, 1))
+        elif vis in x:
+            y = sb.join(x.rsplit(vis, 1))
+        elif ir in x:
+            y = sb.join(x.rsplit(ir, 1))
+        else:
+            y = x
+        paths.append(y.rsplit(".", 1)[0] + ".txt")
+    return paths
 
 def imgir2label_paths(img_paths):
     """Define label paths as a function of image paths."""
-    sa, sb = f"{os.sep}image{os.sep}", f"{os.sep}labels{os.sep}"  # /images/, /labels/ substrings
-    return [sb.join(x.rsplit(sa, 1)).rsplit(".", 1)[0] + ".txt" for x in img_paths]
+    sa, sb = f"{os.sep}image{os.sep}", f"{os.sep}labels{os.sep}"  # /image/, /labels/ substrings
+    vis, ir = f"{os.sep}visible{os.sep}", f"{os.sep}infrared{os.sep}"
+    paths = []
+    for x in img_paths:
+        if sa in x:
+            y = sb.join(x.rsplit(sa, 1))
+        elif vis in x:
+            y = sb.join(x.rsplit(vis, 1))
+        elif ir in x:
+            y = sb.join(x.rsplit(ir, 1))
+        else:
+            y = x
+        paths.append(y.rsplit(".", 1)[0] + ".txt")
+    return paths
 
 def get_hash(paths):
     """Returns a single hash value of a list of paths (files or dirs)."""
