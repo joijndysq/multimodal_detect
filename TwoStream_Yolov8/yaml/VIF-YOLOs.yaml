@@ -1,0 +1,62 @@
+# VIF-YOLO-S: Visible-Infrared Fusion YOLO (YOLOv8s scale) for multimodal object detection
+# Based on: "VIF-YOLO: A Visible-Infrared Fusion YOLO Model for Real-Time Human Detection in Dense Smoke Environments"
+# Architecture: Dual-stream backbone (RGB + IR) with LMF fusion + EMA attention
+# Scale: s (width_multiple=0.50, depth_multiple=0.33) ~11M params
+
+nc: 2
+names: ['person', 'fire']
+scales:
+  s: [0.33, 0.50, 1024]  # YOLOv8s
+  n: [0.33, 0.25, 1024]  # YOLOv8n (commented out)
+  m: [0.67, 0.75, 1024]  # YOLOv8m
+
+# YOLOv8 backbone with dual-stream + LMF fusion
+backbone:
+  # [from, repeats, module, args]
+
+  # --- RGB branch (P1-P3) ---
+  - [-1, 1, Conv, [64, 3, 2]]       # 0-P1/2
+  - [-1, 1, Conv, [128, 3, 2]]      # 1-P2/4
+  - [-1, 3, C2f, [128, True]]       # 2-P2
+  - [-1, 1, EMA, [128]]             # 3-EMA attention
+  - [-1, 1, Conv, [256, 3, 2]]      # 4-P3/8
+
+  # --- IR branch (P1-P3) ---
+  - [-4, 1, Conv, [64, 3, 2]]       # 5-P1/2 (branch switch via -4)
+  - [-1, 1, Conv, [128, 3, 2]]      # 6-P2/4
+  - [-1, 3, C2f, [128, True]]       # 7-P2
+  - [-1, 1, EMA, [128]]             # 8-EMA attention
+  - [-1, 1, Conv, [256, 3, 2]]      # 9-P3/8
+
+  # --- LMF Fusion (single-point, at P3 level) ---
+  - [[4, 9], 1, LMF, [256]]         # 10-LMF fusion of RGB@4 + IR@9
+
+  # --- Shared backbone (P4-P5) ---
+  - [-1, 3, C2f, [256, True]]       # 11-P3 continued
+  - [-1, 1, Conv, [512, 3, 2]]      # 12-P4/16
+  - [-1, 3, C2f, [512, True]]       # 13-P4
+  - [-1, 1, EMA, [512]]             # 14-EMA attention
+  - [-1, 1, Conv, [1024, 3, 2]]     # 15-P5/32
+  - [-1, 1, SPPF, [1024, 5]]        # 16-P5 SPPF
+
+# YOLOv8 head (FPN + PAN)
+head:
+  - [-1, 1, nn.Upsample, [None, 2, 'nearest']]  # 17-FPN upsample
+  - [[-1, 13], 1, Concat, [1]]                  # 18-cat P4
+  - [-1, 3, C2f, [512]]                         # 19-FPN P4
+  - [-1, 1, EMA, [512]]                         # 20-EMA
+
+  - [-1, 1, nn.Upsample, [None, 2, 'nearest']]  # 21-FPN upsample
+  - [[-1, 11], 1, Concat, [1]]                  # 22-cat P3 (fused)
+  - [-1, 3, C2f, [256]]                         # 23-FPN P3
+  - [-1, 1, EMA, [256]]                         # 24-EMA
+
+  - [-1, 1, Conv, [256, 3, 2]]                  # 25-PAN downsample
+  - [[-1, 20], 1, Concat, [1]]                  # 26-cat FPN P4
+  - [-1, 3, C2f, [512]]                         # 27-PAN P4
+
+  - [-1, 1, Conv, [512, 3, 2]]                  # 28-PAN downsample
+  - [[-1, 16], 1, Concat, [1]]                  # 29-cat P5 (SPPF)
+  - [-1, 3, C2f, [1024]]                        # 30-PAN P5
+
+  - [[24, 27, 30], 1, Detect, [nc]]             # 31-Detect head (P3, P4, P5)

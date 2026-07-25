@@ -1,0 +1,89 @@
+# Hybrid VIF-YOLO v2: Progressive RGB-IR Fusion with multi-stage attention
+# Strategy: Concat (shallow) -> AttnFusion (mid) -> LMF (deep) + EMA + SPPF + P5
+# Fixes v1: P2->P5 detection (reduce noise 33600->8400 anchors), n->s scale, Add->ConcatFusion
+
+nc: 2
+names: ['person', 'fire']
+
+scales:
+  s: [0.33, 0.50, 1024]  # YOLOv8s (default - more capacity for complex fusion)
+  n: [0.33, 0.25, 1024]
+  m: [0.67, 0.75, 1024]
+
+# ======================
+# Backbone
+# ======================
+backbone:
+  # [from, repeats, module, args]
+
+  # -------- Stage 1 (shallow: lightweight fusion) --------
+  # RGB branch
+  - [-1, 1, Conv, [64, 3, 2]]         # 0-P1/2
+  - [-1, 1, Conv, [128, 3, 2]]        # 1-P2/4
+  - [-1, 3, C2f, [128, True]]         # 2-P2 RGB
+
+  # IR branch
+  - [-4, 1, Conv, [64, 3, 2]]         # 3-P1/2 (branch via -4)
+  - [-1, 1, Conv, [128, 3, 2]]        # 4-P2/4
+  - [-1, 3, C2f, [128, True]]         # 5-P2 IR
+
+  # Fusion 1: Concat + Conv (replaces naive Add)
+  - [[2, 5], 1, Concat, [1]]          # 6-cat P2 RGB+IR (256ch)
+  - [-1, 1, Conv, [128, 1, 1]]        # 7-ConcatFusion P2 (128ch, 160x160)
+
+  # -------- Stage 2 (mid: attention fusion) --------
+  # Main path continues
+  - [-1, 1, Conv, [256, 3, 2]]        # 8-P3/8
+  - [-1, 6, C2f, [256, True]]         # 9-P3 main
+
+  # IR branch continues
+  - [5, 1, Conv, [256, 3, 2]]         # 10-IR P3/8
+  - [-1, 6, C2f, [256, True]]         # 11-IR P3
+
+  # Fusion 2: Attention Fusion
+  - [[9, 11], 1, AttnFusion, [256]]   # 12-AttnFusion P3 (256ch, 80x80)
+
+  # -------- Stage 3 (deep: LMF fusion) --------
+  # Main path continues
+  - [-1, 1, Conv, [512, 3, 2]]        # 13-P4/16
+  - [-1, 3, C2f, [512, True]]         # 14-P4 main
+
+  # IR branch continues
+  - [11, 1, Conv, [512, 3, 2]]        # 15-IR P4/16
+  - [-1, 3, C2f, [512, True]]         # 16-IR P4
+
+  # Fusion 3: LMF (core)
+  - [[14, 16], 1, LMF, [512]]         # 17-LMF P4 (512ch, 40x40)
+
+  # Deep enhancement + P5 generation
+  - [-1, 1, EMA, [512]]               # 18-EMA attention
+  - [-1, 1, SPPF, [512, 5]]           # 19-SPPF P5/32
+  - [-1, 1, Conv, [1024, 3, 2]]       # 20-P5/32 (stride-2 for deep detection)
+  - [-1, 1, SPPF, [1024, 5]]          # 21-SPPF P5 (1024ch, 20x20)
+
+# ======================
+# Neck (PAN-FPN + EMA) - P3, P4, P5 detection
+# ======================
+head:
+  # FPN top-down path
+  - [-1, 1, nn.Upsample, [None, 2, 'nearest']]  # 22-upsample P5->P4
+  - [[-1, 17], 1, Concat, [1]]                  # 23-cat LMF P4
+  - [-1, 3, C2f, [512]]                         # 24-FPN P4
+  - [-1, 1, EMA, [512]]                         # 25-EMA
+
+  - [-1, 1, nn.Upsample, [None, 2, 'nearest']]  # 26-upsample P4->P3
+  - [[-1, 12], 1, Concat, [1]]                  # 27-cat AttnFusion P3
+  - [-1, 3, C2f, [256]]                         # 28-FPN P3
+  - [-1, 1, EMA, [256]]                         # 29-EMA -> Detect P3
+
+  # PAN bottom-up path
+  - [-1, 1, Conv, [256, 3, 2]]                  # 30-downsample P3->P4
+  - [[-1, 24], 1, Concat, [1]]                  # 31-cat FPN P4
+  - [-1, 3, C2f, [512]]                         # 32-PAN P4 -> Detect P4
+
+  - [-1, 1, Conv, [512, 3, 2]]                  # 33-downsample P4->P5
+  - [[-1, 21], 1, Concat, [1]]                  # 34-cat SPPF P5
+  - [-1, 3, C2f, [1024]]                        # 35-PAN P5 -> Detect P5
+
+  # Detection heads (P3, P4, P5 - standard 8400 anchors)
+  - [[29, 32, 35], 1, Detect, [nc]]             # 36-Detect (P3, P4, P5)

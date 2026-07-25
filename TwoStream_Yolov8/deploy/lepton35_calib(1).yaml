@@ -1,0 +1,19 @@
+thermal_camera:
+  width: 160
+  height: 120
+  fx: 146.5651547283673
+  fy: 145.9472751082604
+  cx: 70.8472366609258
+  cy: 58.31144087879527
+  distortion_coefficients:
+  - -0.08907337804499735
+  - -2.1111009893635577
+  - -0.0007071228773333119
+  - 0.0005033912468799741
+  - 7.664278773167931
+calibration_info:
+  board_cols: 9
+  board_rows: 6
+  square_size_mm: 25.0
+  avg_reproj_error: 0.3176
+  timestamp: 1779452360
