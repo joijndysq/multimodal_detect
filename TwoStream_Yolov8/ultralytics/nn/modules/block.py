@@ -54,7 +54,8 @@ __all__ = (
     "GCBAM",
     "SACBAM",
     "MdC2f",
-    "C2f_Invo"
+    "C2f_Invo",
+    "DualStreamViTFusion",
 )
 class BasicConv(nn.Module):
     def __init__(self, in_planes, out_planes, kernel_size, stride=1, padding=0, dilation=1, groups=1, relu=True,
@@ -3109,6 +3110,111 @@ class AttnFusion(nn.Module):
         return self.rgb_conv(rgb) * w_rgb + self.ir_conv(ir) * w_ir
 
 
+class DualStreamViTFusion(nn.Module):
+    """Windowed bidirectional Vision Transformer fusion for aligned RGB and infrared features.
+
+    Each spatial feature is treated as a token. RGB tokens attend to infrared tokens and infrared
+    tokens attend to RGB tokens inside the same local window. Local windows bound the quadratic
+    attention cost and allow the module to tolerate small residual registration errors without
+    replacing camera calibration.
+
+    Args:
+        c1: Number of channels in each input modality.
+        c2: Number of output channels.
+        num_heads: Number of cross-attention heads.
+        window_size: Spatial attention window size.
+        mlp_ratio: Expansion ratio of the token feed-forward network.
+        dropout: Attention and projection dropout probability.
+    """
+
+    def __init__(self, c1, c2=None, num_heads=4, window_size=8, mlp_ratio=2.0, dropout=0.0):
+        super().__init__()
+        c2 = c2 or c1
+        if c2 % num_heads:
+            raise ValueError(f"c2 ({c2}) must be divisible by num_heads ({num_heads})")
+        if window_size < 1:
+            raise ValueError(f"window_size must be positive, got {window_size}")
+
+        self.c2 = c2
+        self.window_size = window_size
+        self.rgb_proj = Conv(c1, c2, 1, 1) if c1 != c2 else nn.Identity()
+        self.ir_proj = Conv(c1, c2, 1, 1) if c1 != c2 else nn.Identity()
+
+        # Depth-wise convolution supplies resolution-independent 2-D positional information.
+        self.rgb_pos = nn.Conv2d(c2, c2, 3, padding=1, groups=c2, bias=False)
+        self.ir_pos = nn.Conv2d(c2, c2, 3, padding=1, groups=c2, bias=False)
+        self.rgb_norm = nn.LayerNorm(c2)
+        self.ir_norm = nn.LayerNorm(c2)
+        self.rgb_from_ir = nn.MultiheadAttention(c2, num_heads, dropout=dropout, batch_first=True)
+        self.ir_from_rgb = nn.MultiheadAttention(c2, num_heads, dropout=dropout, batch_first=True)
+
+        hidden_dim = int(c2 * mlp_ratio)
+        self.rgb_ffn_norm = nn.LayerNorm(c2)
+        self.ir_ffn_norm = nn.LayerNorm(c2)
+        self.rgb_ffn = nn.Sequential(
+            nn.Linear(c2, hidden_dim), nn.GELU(), nn.Dropout(dropout),
+            nn.Linear(hidden_dim, c2), nn.Dropout(dropout),
+        )
+        self.ir_ffn = nn.Sequential(
+            nn.Linear(c2, hidden_dim), nn.GELU(), nn.Dropout(dropout),
+            nn.Linear(hidden_dim, c2), nn.Dropout(dropout),
+        )
+
+        # Small initial residual scales let a newly inserted transformer start close to identity.
+        self.rgb_scale = nn.Parameter(torch.full((c2,), 1e-3))
+        self.ir_scale = nn.Parameter(torch.full((c2,), 1e-3))
+        self.modal_gate = nn.Conv2d(c2 * 2, 2, 1)
+        self.out = Conv(c2, c2, 3, 1)
+
+    def _partition(self, x):
+        """Pad and split BCHW features into (B*n_windows, window_area, C) tokens."""
+        b, c, h, w = x.shape
+        ws = self.window_size
+        pad_h = (ws - h % ws) % ws
+        pad_w = (ws - w % ws) % ws
+        if pad_h or pad_w:
+            x = F.pad(x, (0, pad_w, 0, pad_h))
+        hp, wp = h + pad_h, w + pad_w
+        tokens = x.reshape(b, c, hp // ws, ws, wp // ws, ws)
+        tokens = tokens.permute(0, 2, 4, 3, 5, 1).reshape(-1, ws * ws, c)
+        return tokens, (b, h, w, hp, wp)
+
+    def _reverse(self, tokens, shape):
+        """Restore window tokens to an unpadded BCHW feature map."""
+        b, h, w, hp, wp = shape
+        ws, c = self.window_size, tokens.shape[-1]
+        x = tokens.reshape(b, hp // ws, wp // ws, ws, ws, c)
+        x = x.permute(0, 5, 1, 3, 2, 4).reshape(b, c, hp, wp)
+        return x[:, :, :h, :w]
+
+    def forward(self, x):
+        if not isinstance(x, (list, tuple)) or len(x) != 2:
+            raise TypeError("DualStreamViTFusion expects [rgb_feature, ir_feature]")
+        rgb, ir = self.rgb_proj(x[0]), self.ir_proj(x[1])
+        if rgb.shape != ir.shape:
+            raise ValueError(f"RGB and IR feature shapes must match, got {rgb.shape} and {ir.shape}")
+
+        rgb = rgb + self.rgb_pos(rgb)
+        ir = ir + self.ir_pos(ir)
+        rgb_tokens, shape = self._partition(rgb)
+        ir_tokens, _ = self._partition(ir)
+        rgb_norm = self.rgb_norm(rgb_tokens)
+        ir_norm = self.ir_norm(ir_tokens)
+
+        rgb_delta = self.rgb_from_ir(rgb_norm, ir_norm, ir_norm, need_weights=False)[0]
+        ir_delta = self.ir_from_rgb(ir_norm, rgb_norm, rgb_norm, need_weights=False)[0]
+        rgb_tokens = rgb_tokens + rgb_delta * self.rgb_scale
+        ir_tokens = ir_tokens + ir_delta * self.ir_scale
+        rgb_tokens = rgb_tokens + self.rgb_ffn(self.rgb_ffn_norm(rgb_tokens)) * self.rgb_scale
+        ir_tokens = ir_tokens + self.ir_ffn(self.ir_ffn_norm(ir_tokens)) * self.ir_scale
+
+        rgb = self._reverse(rgb_tokens, shape)
+        ir = self._reverse(ir_tokens, shape)
+        weights = self.modal_gate(torch.cat((rgb, ir), dim=1)).softmax(dim=1)
+        fused = rgb * weights[:, :1] + ir * weights[:, 1:]
+        return self.out(fused)
+
+
 class RIFusion(nn.Module):
     # Concatenate a list of tensors along dimension
     def __init__(self, c1,r=16,dimension=1):
@@ -3139,6 +3245,4 @@ class RIFusion(nn.Module):
   
 #         x1=x*y
 #         return x+torch.cat((x1[:,self.c1//2:,...],x1[:,:self.c1//2,...]),dim=1)
-
-
 

@@ -14,9 +14,10 @@ torch.serialization.add_safe_globals(
 )
 
 # 模型选择：切换注释即可
+model = YOLO('./yaml/dual-stream-vit-yolov8.yaml')  # 双流 ViT（窗口化双向跨模态注意力）
 # model = YOLO('./yaml/hybrid-vif-yolo.yaml')     # Hybrid VIF-YOLO (Add + AttnFusion + LMF)
 # model = YOLO('./runs/detect/train25/weights/best.pt')
-model = YOLO("./yaml/VIF-YOLO.yaml")  # VIF-YOLO (EMA + LMF)
+# model = YOLO("./yaml/VIF-YOLO.yaml")  # VIF-YOLO (EMA + LMF)
 # model = YOLO('./yaml/PC2f_MPF_yolov8n.yaml')  # PC2f_MPF (原始)
 
 # Prefer CUDA when available; otherwise fall back to CPU to avoid startup errors.

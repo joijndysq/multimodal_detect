@@ -83,6 +83,7 @@ from ultralytics.nn.modules import (
     EMA,
     LMF,
     AttnFusion,
+    DualStreamViTFusion,
 )
 # Alias for yaml compatibility
 Add = ADD
@@ -1117,6 +1118,12 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             c1 = ch[f[0]]
             c2 = make_divisible(min(args[0], max_channels) * width, 8)
             args = [c1, c2]
+        elif m is DualStreamViTFusion:
+            c1 = ch[f[0]]
+            if any(ch[index] != c1 for index in f[1:]):
+                raise ValueError("DualStreamViTFusion inputs must have identical channel counts")
+            c2 = make_divisible(min(args[0], max_channels) * width, 8)
+            args = [c1, c2, *args[1:]]
         elif m is AIFI:
             args = [ch[f], *args]
         elif m in {HGStem, HGBlock}:

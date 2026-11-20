@@ -144,6 +144,9 @@ datasets/
 runs/
 wandb/
 tests/
+!/tests/
+/tests/*
+!/tests/test_dual_stream_vit_fusion.py
 .DS_Store
 
 # Neural Network weights -----------------------------------------------------------------------------------------------

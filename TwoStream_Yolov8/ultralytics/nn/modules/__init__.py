@@ -79,6 +79,7 @@ from .block import (
     EMA,
     LMF,
     AttnFusion,
+    DualStreamViTFusion,
 )
 from .conv import (
     CBAM,
@@ -168,4 +169,5 @@ __all__ = (
     "CBFuse",
     "CBLinear",
     "Silence",
+    "DualStreamViTFusion",
 )

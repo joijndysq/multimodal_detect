@@ -1,0 +1,63 @@
+digraph DualStreamViTYOLO {
+  graph [rankdir=LR, bgcolor="#FAFBFD", pad=0.3, nodesep=0.32, ranksep=0.65,
+         fontname="Noto Sans CJK SC", label="Dual-stream ViT-YOLO 总体架构", labelloc=t,
+         fontsize=22, fontcolor="#172033"];
+  node [shape=box, style="rounded,filled", fontname="Noto Sans CJK SC", fontsize=11,
+        color="#9AA5B5", fontcolor="#172033", margin="0.12,0.08"];
+  edge [color="#687386", penwidth=1.5, arrowsize=0.7, fontname="Noto Sans CJK SC", fontsize=9];
+
+  input [label="6-channel input\nRGB | Infrared", fillcolor="#ECEFF4"];
+  split [label="Channel split", shape=diamond, fillcolor="#FFFFFF"];
+  input -> split;
+
+  subgraph cluster_rgb {
+    label="RGB stream"; color="#8CB9F5"; style="rounded,dashed"; fontcolor="#2864A8";
+    r1 [label="Conv s=2\nP1 / 2", fillcolor="#E7F1FF"];
+    r2 [label="Conv + C2f\nP2 / 4", fillcolor="#E7F1FF"];
+    r3 [label="Conv + C2f\nP3 / 8", fillcolor="#D8EAFF"];
+    r4 [label="Conv + C2f\nP4 / 16", fillcolor="#D8EAFF"];
+    r1 -> r2 -> r3 -> r4;
+  }
+
+  subgraph cluster_ir {
+    label="Infrared stream"; color="#F19A85"; style="rounded,dashed"; fontcolor="#A84A35";
+    i1 [label="Conv s=2\nP1 / 2", fillcolor="#FFF0EB"];
+    i2 [label="Conv + C2f\nP2 / 4", fillcolor="#FFF0EB"];
+    i3 [label="Conv + C2f\nP3 / 8", fillcolor="#FFE2DA"];
+    i4 [label="Conv + C2f\nP4 / 16", fillcolor="#FFE2DA"];
+    i1 -> i2 -> i3 -> i4;
+  }
+
+  split -> r1 [label="channels 0:3", color="#4A8BD4"];
+  split -> i1 [label="channels 3:6", color="#D66A50"];
+
+  vit3 [label="DualStreamViTFusion\nP3 · 4 heads · 8×8 windows", fillcolor="#EDE1FF",
+        color="#8854C7", penwidth=2];
+  vit4 [label="DualStreamViTFusion\nP4 · 4 heads · 8×8 windows", fillcolor="#EDE1FF",
+        color="#8854C7", penwidth=2];
+  r3 -> vit3 [color="#4A8BD4"];
+  i3 -> vit3 [color="#D66A50"];
+  r4 -> vit4 [color="#4A8BD4"];
+  i4 -> vit4 [color="#D66A50"];
+
+  deep [label="Shared backbone\nConv P5/32 → C2f → SPPF", fillcolor="#E4F7EC", color="#43A56A"];
+  vit4 -> deep;
+
+  fpn4 [label="Upsample + concat(P4)\nC2f", fillcolor="#FFF6D9", color="#D5A728"];
+  fpn3 [label="Upsample + concat(P3)\nC2f", fillcolor="#FFF6D9", color="#D5A728"];
+  pan4 [label="Downsample + concat\nPAN P4", fillcolor="#FFF6D9", color="#D5A728"];
+  pan5 [label="Downsample + concat\nPAN P5", fillcolor="#FFF6D9", color="#D5A728"];
+  deep -> fpn4;
+  vit4 -> fpn4 [style=dashed];
+  fpn4 -> fpn3;
+  vit3 -> fpn3 [style=dashed];
+  fpn3 -> pan4 -> pan5;
+  fpn4 -> pan4 [style=dashed];
+  deep -> pan5 [style=dashed];
+
+  detect [label="YOLO Detect\nP3 + P4 + P5", shape=component, fillcolor="#DFF6F4",
+          color="#278F88", penwidth=2];
+  fpn3 -> detect;
+  pan4 -> detect;
+  pan5 -> detect;
+}
