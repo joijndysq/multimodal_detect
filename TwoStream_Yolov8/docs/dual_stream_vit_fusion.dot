@@ -1,0 +1,48 @@
+digraph DualStreamViTFusion {
+  graph [rankdir=LR, bgcolor="#FAFBFD", pad=0.3, nodesep=0.3, ranksep=0.7,
+         fontname="Noto Sans CJK SC", label="DualStreamViTFusion 内部结构", labelloc=t,
+         fontsize=22, fontcolor="#172033"];
+  node [shape=box, style="rounded,filled", fontname="Noto Sans CJK SC", fontsize=10,
+        color="#9AA5B5", fontcolor="#172033", margin="0.12,0.08"];
+  edge [color="#687386", penwidth=1.4, arrowsize=0.7, fontname="Noto Sans CJK SC", fontsize=9];
+
+  rgb [label="RGB feature\nB×C×H×W", fillcolor="#D8EAFF", color="#4A8BD4"];
+  ir [label="IR feature\nB×C×H×W", fillcolor="#FFE2DA", color="#D66A50"];
+  rgb_pos [label="1×1 projection\n+ depthwise 3×3 position", fillcolor="#E7F1FF"];
+  ir_pos [label="1×1 projection\n+ depthwise 3×3 position", fillcolor="#FFF0EB"];
+  rgb_win [label="8×8 window partition\n+ LayerNorm", fillcolor="#EEF5FF"];
+  ir_win [label="8×8 window partition\n+ LayerNorm", fillcolor="#FFF3EF"];
+  rgb -> rgb_pos -> rgb_win;
+  ir -> ir_pos -> ir_win;
+
+  rgb_attn [label="RGB ← IR Cross-Attention\nQ: RGB · K,V: IR", fillcolor="#EDE1FF",
+            color="#8854C7", penwidth=2];
+  ir_attn [label="IR ← RGB Cross-Attention\nQ: IR · K,V: RGB", fillcolor="#EDE1FF",
+           color="#8854C7", penwidth=2];
+  rgb_win -> rgb_attn [label="Q", color="#4A8BD4"];
+  ir_win -> rgb_attn [label="K,V", color="#D66A50"];
+  ir_win -> ir_attn [label="Q", color="#D66A50"];
+  rgb_win -> ir_attn [label="K,V", color="#4A8BD4"];
+
+  rgb_tf [label="Residual × γ\nLayerNorm → MLP → Residual", fillcolor="#F3EAFF"];
+  ir_tf [label="Residual × γ\nLayerNorm → MLP → Residual", fillcolor="#F3EAFF"];
+  rgb_attn -> rgb_tf;
+  ir_attn -> ir_tf;
+  rgb_win -> rgb_tf [label="skip", style=dashed];
+  ir_win -> ir_tf [label="skip", style=dashed];
+
+  rgb_rev [label="Reverse windows\nRGB enhanced", fillcolor="#D8EAFF"];
+  ir_rev [label="Reverse windows\nIR enhanced", fillcolor="#FFE2DA"];
+  rgb_tf -> rgb_rev;
+  ir_tf -> ir_rev;
+
+  gate [label="Spatial modality gate\nConcat → 1×1 Conv → Softmax", fillcolor="#FFF6D9", color="#D5A728"];
+  rgb_rev -> gate;
+  ir_rev -> gate;
+  weighted [label="wRGB · RGB + wIR · IR", fillcolor="#E4F7EC", color="#43A56A"];
+  gate -> weighted [label="two spatial weights"];
+  rgb_rev -> weighted [style=dashed];
+  ir_rev -> weighted [style=dashed];
+  output [label="3×3 Conv\nFused B×C×H×W", fillcolor="#DFF6F4", color="#278F88", penwidth=2];
+  weighted -> output;
+}
